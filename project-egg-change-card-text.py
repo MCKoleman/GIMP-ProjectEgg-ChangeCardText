@@ -10,12 +10,69 @@ from gi.repository import GObject
 from gi.repository import GLib
 from gi.repository import Gtk
 import sys
+import re
 
 PLUGIN_PROC = "project-egg-change-card-text"
 PLUGIN_BINARY = "project-egg-change-card-text.py"
 
-def change_text(image, layer, new_text):
-	Gimp.get_pdb().run_procedure("gimp-text-layer-set-text", [image, layer, new_text])
+def parse_content_text(content: str):
+	match = re.search(
+		r'^(?P<name>[^,]*),[\s]*(?P<cost>[\d]*)/(?P<draw>[\d]*)/(?P<discard>[\d]*)/(?P<mill>[\d]*)/(?P<gold>[\d]*)[\s]*(-[\s]*(?P<type>[^:]*)(:[\s]*(?P<effect>.*).*)?)?$', 
+		content
+	)
+
+	# Return default if there was no match
+	if not match:
+		return ("", "", "", "", "", "", "", "")
+
+	return (
+		match.group("name"), 
+		match.group("type") or "Basic", 
+		match.group("effect") or "-", 
+		match.group("cost"), 
+		match.group("draw"), 
+		match.group("discard"), 
+		match.group("mill"), 
+		match.group("gold")
+	)
+
+
+
+def get_layer_name(name: str):
+	return name.split(" #")[0]
+
+
+
+def change_card_text(layer, content: str):
+	# Parse card definition into its text
+	(new_name, new_type, new_effect, 
+		new_cost, new_draw, new_discard, new_mill, new_gold
+	) = parse_content_text(content)
+
+	for child in layer.get_children():
+		if not isinstance(child, Gimp.TextLayer):
+			continue
+		
+		layer_name = get_layer_name(child.get_name())
+		if layer_name == "Name":
+			child.set_text(new_name)
+		elif layer_name == "Type":
+			child.set_text(new_type)
+		elif layer_name == "Effect":
+			child.set_text(new_effect)
+		elif layer_name == "CostNum":
+			child.set_text(new_cost)
+		elif layer_name == "DrawNum":
+			child.set_text(new_draw)
+		elif layer_name == "DiscardNum":
+			child.set_text(new_discard)
+		elif layer_name == "MillNum":
+			child.set_text(new_mill)
+		elif layer_name == "GoldNum":
+			child.set_text(new_gold)
+	return
+
+
 
 def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 	if len(drawables) > 1:
@@ -30,7 +87,7 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 		GimpUi.init(PLUGIN_BINARY)
 
 		dialog = GimpUi.ProcedureDialog.new(procedure, config, "Change Card Text")
-		dialog.fill(["new-name", "new-type", "new-effect", "new-cost", "new-draw", "new-discard", "new-mill", "new-gold"])
+		dialog.fill(["content"])
 		if not dialog.run():
 			dialog.destroy()
 			return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, None)
@@ -38,70 +95,30 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 			dialog.destroy()
 
 	# Run procedure
-	new_name = config.get_property('new-name')
-	new_type = config.get_property('new-type')
-	new_effect = config.get_property('new-effect')
-	new_cost = config.get_property('new-cost')
-	new_draw = config.get_property('new-draw')
-	new_discard = config.get_property('new-discard')
-	new_mill = config.get_property('new-mill')
-	new_gold = config.get_property('new-gold')
-
-	input_layer = drawables[0]
-	# Gimp.message("Found parent {}".format(parent.get_name()))
-	# root = parent.get_parent()
-	# Gimp.message("Parent has parent {}".format(root.get_name()))
-
-	# input_layer = None
-	# for layer in parent.get_children():
-	# 	Gimp.message("Found child {}".format(layer.get_name()))
-	# message = ", ".join([layer.get_name() for layer in parent.get_children()])
-	# Gimp.message("Image has layers [{}]".format(message))
-	# for layer in parent.get_children():
-	# 	if layer.get_name() == "InputText":
-	# 		input_layer = layer
-	# 		break
-
-	if not input_layer:
-		Gimp.message("Did not find InputText layer")
-		return procedure.new_return_values(Gimp.PDBStatusType.CALLING_ERROR, 
-			GLib.Error(f"Procedure {PLUGIN_PROC} needs an 'InputText' layer to work."))
-
+	root = drawables[0]
+	content = config.get_property('content')
+	content_lines = list(filter(lambda line: line != "", content.split("\n")))[:20]
+	
+	# Loop through all cards in root ("Cards" layer)
 	image.undo_group_start()
-	for child in input_layer.get_children():
-		if not isinstance(child, Gimp.TextLayer):
-			continue
-		
-		layer_name = child.get_name()
-		if layer_name == "Name":
-			child.set_text(new_name)
-			# change_text(input_layer, child, new_name)
-		elif layer_name == "Type":
-			child.set_text(new_type)
-			# change_text(input_layer, child, new_type)
-		elif layer_name == "Effect":
-			child.set_text(new_effect)
-			# change_text(input_layer, child, new_effect)
-		elif layer_name == "CostNum":
-			child.set_text(new_cost)
-			# change_text(input_layer, child, new_cost)
-		elif layer_name == "DrawNum":
-			child.set_text(new_draw)
-			# change_text(input_layer, child, new_draw)
-		elif layer_name == "DiscardNum":
-			child.set_text(new_discard)
-			# change_text(input_layer, child, new_discard)
-		elif layer_name == "MillNum":
-			child.set_text(new_mill)
-			# change_text(input_layer, child, new_mill)
-		elif layer_name == "GoldNum":
-			child.set_text(new_gold)
-			# change_text(input_layer, child, new_gold)
+	for [index, card] in enumerate(root.get_children()):
+		# Find "InputText #(num)" layer for each Card
+		for card_layer in card.get_children():
+			card_layer_name = get_layer_name(card_layer.get_name())
+			
+			# Skip all layers except InputText
+			if card_layer_name != "InputText":
+				continue
+
+			card_content = content_lines[index] if index < len(content_lines) else ""
+			change_card_text(card_layer, card_content)
 
 	image.undo_group_end()
 	Gimp.displays_flush()
 
 	return procedure.new_return_values(Gimp.PDBStatusType.SUCCESS, None)
+
+
 
 class ChangeCardText(Gimp.PlugIn):
 	def do_query_procedures(self):
@@ -124,22 +141,10 @@ class ChangeCardText(Gimp.PlugIn):
 			"Changes the text in the card InputText layers",
 			None)
 
-		procedure.add_string_argument("new-name", "Name", None, "Name",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-type", "Type", None, "Type",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-effect", "Effect", None, "-",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-cost", "Cost", None, "0",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-draw", "Draw", None, "0",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-discard", "Discard", None, "0",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-mill", "Mill", None, "0",
-			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("new-gold", "Gold", None, "0",
+		procedure.add_string_argument("content", "Content", None, "Name, 0/0/0/0/0 - Play: Effect.",
 			GObject.ParamFlags.READWRITE)
 		return procedure
+
+
 
 Gimp.main(ChangeCardText.__gtype__, sys.argv)
