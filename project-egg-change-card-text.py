@@ -16,21 +16,35 @@ import re
 PLUGIN_PROC = "project-egg-change-card-text"
 PLUGIN_BINARY = "project-egg-change-card-text.py"
 
+content_regex = (
+	r"(?P<name>[^|]*)[|][\s]*"
+	r"(?P<type>[^|]*)[|][\s]*"
+	r"(?P<cost>[^|]*)[|][\s]*"
+	r"(?P<draw>[^|]*)[|][\s]*"
+	r"(?P<discard>[^|]*)[|][\s]*"
+	r"(?P<mill>[^|]*)[|][\s]*"
+	r"(?P<gold>[^|]*)[|][\s]*"
+	r"(?P<effect>[^|]*)[|][\s]*"
+	r"(?P<expansion>[^|\n]*)[\s]*"
+)
+
 @no_type_check
 def parse_content_text(content: str):
-	match = re.search(
-		r'^(?P<name>[^,]*),[\s]*(?P<cost>[\d]*)/(?P<draw>[\d]*)/(?P<discard>[\d]*)/(?P<mill>[\d]*)/(?P<gold>[\d]*)[\s]*(-[\s]*(?P<type>[^:]*)(:[\s]*(?P<effect>.*).*)?)?$', 
-		content
-	)
+	match = re.search(content_regex, content)
+	#r'^(?P<name>[^,]*),[\s]*(?P<cost>[\d]*)/(?P<draw>[\d]*)/(?P<discard>[\d]*)/(?P<mill>[\d]*)/(?P<gold>[\d]*)[\s]*(-[\s]*(?P<type>[^:]*)(:[\s]*(?P<effect>.*).*)?)?$', 
 
 	# Return default if there was no match
 	if not match:
 		return ("", "", "", "", "", "", "", "")
 
+	effect = match.group("effect") or "-"
+	effect = "\n".join([str.strip() + "." for str in effect.split(".")[:-1]])
+
 	return (
-		match.group("name"), 
+		match.group("name") or "Name", 
 		match.group("type") or "Basic", 
-		match.group("effect") or "-", 
+		effect,
+		match.group("expansion") or "Base", 
 		match.group("cost"), 
 		match.group("draw"), 
 		match.group("discard"), 
@@ -49,8 +63,8 @@ def get_layer_name(name: str):
 @no_type_check
 def change_card_text(layer, content: str, version: str):
 	# Parse card definition into its text
-	(new_name, new_type, new_effect, 
-		new_cost, new_draw, new_discard, new_mill, new_gold
+	(name, type, effect, expansion,
+		cost, draw, discard, mill, gold
 	) = parse_content_text(content)
 
 	for child in layer.get_children():
@@ -59,21 +73,23 @@ def change_card_text(layer, content: str, version: str):
 		
 		layer_name = get_layer_name(child.get_name())
 		if layer_name == "Name":
-			child.set_text(new_name)
+			child.set_text(name)
 		elif layer_name == "Type":
-			child.set_text(new_type)
+			child.set_text(type)
 		elif layer_name == "Effect":
-			child.set_text(new_effect)
+			child.set_text(effect)
 		elif layer_name == "CostNum":
-			child.set_text(new_cost)
+			child.set_text(cost)
 		elif layer_name == "DrawNum":
-			child.set_text(new_draw)
+			child.set_text(draw)
 		elif layer_name == "DiscardNum":
-			child.set_text(new_discard)
+			child.set_text(discard)
 		elif layer_name == "MillNum":
-			child.set_text(new_mill)
+			child.set_text(mill)
 		elif layer_name == "GoldNum":
-			child.set_text(new_gold)
+			child.set_text(gold)
+		elif layer_name == "Expansion":
+			child.set_text(expansion)
 		elif layer_name == "Version":
 			child.set_text(version)
 	return
@@ -154,7 +170,7 @@ class ChangeCardText(Gimp.PlugIn): #type: ignore
 			GObject.ParamFlags.READWRITE)
 		procedure.add_int_argument("num-cards", "Number of Cards", None, 0, 20, 9,
 			GObject.ParamFlags.READWRITE)
-		procedure.add_string_argument("version", "Version", None, "1",
+		procedure.add_string_argument("version", "Version", None, "v0.1.0",
 			GObject.ParamFlags.READWRITE)
 		return procedure
 
