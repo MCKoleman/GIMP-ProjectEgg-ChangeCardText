@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from typing import no_type_check
 import gi
 gi.require_version('Gimp', '3.0')
-from gi.repository import Gimp
+from gi.repository import Gimp #type: ignore
 gi.require_version('GimpUi', '3.0')
-from gi.repository import GimpUi
-from gi.repository import GObject
-from gi.repository import GLib
-from gi.repository import Gtk
+from gi.repository import GimpUi #type: ignore
+from gi.repository import GObject #type: ignore
+from gi.repository import GLib #type: ignore
+from gi.repository import Gtk #type: ignore
 import sys
 import re
 
 PLUGIN_PROC = "project-egg-change-card-text"
 PLUGIN_BINARY = "project-egg-change-card-text.py"
 
+@no_type_check
 def parse_content_text(content: str):
 	match = re.search(
 		r'^(?P<name>[^,]*),[\s]*(?P<cost>[\d]*)/(?P<draw>[\d]*)/(?P<discard>[\d]*)/(?P<mill>[\d]*)/(?P<gold>[\d]*)[\s]*(-[\s]*(?P<type>[^:]*)(:[\s]*(?P<effect>.*).*)?)?$', 
@@ -38,12 +40,14 @@ def parse_content_text(content: str):
 
 
 
+@no_type_check
 def get_layer_name(name: str):
 	return name.split(" #")[0]
 
 
 
-def change_card_text(layer, content: str):
+@no_type_check
+def change_card_text(layer, content: str, version: str):
 	# Parse card definition into its text
 	(new_name, new_type, new_effect, 
 		new_cost, new_draw, new_discard, new_mill, new_gold
@@ -70,10 +74,12 @@ def change_card_text(layer, content: str):
 			child.set_text(new_mill)
 		elif layer_name == "GoldNum":
 			child.set_text(new_gold)
+		elif layer_name == "Version":
+			child.set_text(version)
 	return
 
 
-
+@no_type_check
 def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 	if len(drawables) > 1:
 		return procedure.new_return_values(Gimp.PDBStatusType.CALLING_ERROR,
@@ -87,7 +93,7 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 		GimpUi.init(PLUGIN_BINARY)
 
 		dialog = GimpUi.ProcedureDialog.new(procedure, config, "Change Card Text")
-		dialog.fill(["content"])
+		dialog.fill(["content", "num-cards", "version"])
 		if not dialog.run():
 			dialog.destroy()
 			return procedure.new_return_values(Gimp.PDBStatusType.CANCEL, None)
@@ -97,7 +103,9 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 	# Run procedure
 	root = drawables[0]
 	content = config.get_property('content')
-	content_lines = list(filter(lambda line: line != "", content.split("\n")))[:20]
+	num_cards = config.get_property('num-cards')
+	version = config.get_property('version')
+	content_lines = list(filter(lambda line: line != "", content.split("\n")))[:num_cards]
 	
 	# Loop through all cards in root ("Cards" layer)
 	image.undo_group_start()
@@ -111,7 +119,7 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 				continue
 
 			card_content = content_lines[index] if index < len(content_lines) else ""
-			change_card_text(card_layer, card_content)
+			change_card_text(card_layer, card_content, version)
 
 	image.undo_group_end()
 	Gimp.displays_flush()
@@ -120,10 +128,11 @@ def change_card_text_run(procedure, run_mode, image, drawables, config, data):
 
 
 
-class ChangeCardText(Gimp.PlugIn):
+class ChangeCardText(Gimp.PlugIn): #type: ignore
 	def do_query_procedures(self):
 		return [ PLUGIN_PROC ]
 
+	@no_type_check
 	def do_create_procedure(self, name):
 		procedure = None
 
@@ -143,8 +152,12 @@ class ChangeCardText(Gimp.PlugIn):
 
 		procedure.add_string_argument("content", "Content", None, "Name, 0/0/0/0/0 - Play: Effect.",
 			GObject.ParamFlags.READWRITE)
+		procedure.add_int_argument("num-cards", "Number of Cards", None, 0, 20, 9,
+			GObject.ParamFlags.READWRITE)
+		procedure.add_string_argument("version", "Version", None, "1",
+			GObject.ParamFlags.READWRITE)
 		return procedure
 
 
 
-Gimp.main(ChangeCardText.__gtype__, sys.argv)
+Gimp.main(ChangeCardText.__gtype__, sys.argv) #type: ignore
